@@ -1,3 +1,13 @@
+---
+name: flexicomic
+description: Generate comics and manga with AI. Use when user wants to create comics, manga, graphic novels, or sequential art with custom layouts, characters, and styles.
+model: opus
+license: MIT
+metadata:
+  author: SCF
+  version: "1.0.0"
+---
+
 # flexicomic
 
 Flexible comic generation with full customization support.
@@ -96,14 +106,6 @@ bun scripts/main.ts composite -c my-comic/flexicomic.json
 
 # Compose specific pages
 bun scripts/main.ts composite -c my-comic/flexicomic.json --pages 1-3
-```
-
-### `pdf -c <config.json>`
-
-Merge generated pages into a PDF file.
-
-```bash
-bun scripts/main.ts pdf -c my-comic/flexicomic.json
 ```
 
 ## Configuration File
@@ -217,7 +219,6 @@ my-comic/
 ├── pages/                    # Composed pages
 │   ├── page1.png
 │   └── ...
-└── {title}.pdf               # Final PDF
 ```
 
 ## Character References
@@ -280,15 +281,9 @@ Predefined layouts in `references/layouts/`:
    bun scripts/main.ts generate -c my-story/flexicomic.json --parallel
    ```
 
-4. **Create PDF**
-   ```bash
-   bun scripts/main.ts pdf -c my-story/flexicomic.json
-   ```
-
-5. **Review output**
+4. **Review output**
    ```bash
    # Check my-story/pages/ for composed pages
-   # Check my-story/{title}.pdf for final PDF
    ```
 
 ## Tips

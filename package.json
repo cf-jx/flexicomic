@@ -12,8 +12,7 @@
     "init": "bun scripts/main.ts init",
     "generate": "bun scripts/main.ts generate",
     "preview": "bun scripts/main.ts preview",
-    "composite": "bun scripts/main.ts composite",
-    "pdf": "bun scripts/main.ts pdf"
+    "composite": "bun scripts/main.ts composite"
   },
   "keywords": [
     "comic",
@@ -23,8 +22,7 @@
     "image-generation"
   ],
   "dependencies": {
-    "canvas": "^2.11.2",
-    "pdf-lib": "^1.17.1"
+    "@napi-rs/canvas": "^0.1.89"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

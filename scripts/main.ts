@@ -8,7 +8,6 @@ import { initInteractive } from "./init.js";
 import { generateComic } from "./generate.js";
 import { previewLayout } from "./preview.js";
 import { compositePages } from "./composite.js";
-import { mergeToPdf } from "./merge-to-pdf.js";
 
 const SKILL_DIR = path.resolve(import.meta.dir, "..");
 
@@ -65,17 +64,6 @@ async function main() {
           return;
         }
         await compositePages(parsed.options);
-        break;
-      }
-
-      case "pdf": {
-        if (!parsed.options.config) {
-          console.error("Error: --config is required for pdf command");
-          console.error("Usage: main.ts pdf -c <config.json>");
-          process.exit(1);
-          return;
-        }
-        await mergeToPdf(parsed.options.config);
         break;
       }
 

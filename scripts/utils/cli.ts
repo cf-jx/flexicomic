@@ -110,7 +110,6 @@ Commands:
   generate -c <config>      Generate comic panels and pages
   preview -c <config>       Preview layout without generating
   composite -c <config>     Compose pages from generated panels
-  pdf -c <config>           Merge pages to PDF
 
 Generate Options:
   -c, --config <path>       Configuration file path (required)
