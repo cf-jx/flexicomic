@@ -2,6 +2,7 @@
  * Configuration validation using AJV
  */
 
+import path from "node:path";
 import type { FlexicomicConfig } from "./types.js";
 
 let AjvInstance: any = null;
@@ -28,8 +29,8 @@ export async function validateConfig(config: unknown): Promise<{ valid: boolean;
   }
 
   try {
-    const schemaUrl = new URL("../schema/flexicomic-schema.json", import.meta.url);
-    const schema = JSON.parse(await Bun.file(schemaUrl).text());
+    const schemaPath = path.resolve(import.meta.dir, "../schema/flexicomic-schema.json");
+    const schema = JSON.parse(await Bun.file(schemaPath).text());
 
     const validate = Ajv.compile(schema);
     const valid = validate(config);

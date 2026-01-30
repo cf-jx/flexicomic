@@ -158,7 +158,8 @@ async function generateWithDashScope(
 }
 
 /**
- * Generate image using Google Gemini
+ * Generate image using Google Gemini API
+ * Copied from: baoyu-image-gen/scripts/providers/google.ts
  */
 async function generateWithGoogle(
   prompt: string,
@@ -171,9 +172,85 @@ async function generateWithGoogle(
     throw new Error("GOOGLE_API_KEY not found");
   }
 
-  // Gemini doesn't have direct image generation, use generative-ai API
-  // For now, we'll use a placeholder implementation
-  throw new Error("Google image generation not yet implemented. Please use DASHSCOPE_API_KEY.");
+  function getGoogleBaseUrl(): string {
+    const base = process.env.GOOGLE_BASE_URL || "https://generativelanguage.googleapis.com";
+    return base.replace(/\/+$/g, "");
+  }
+
+  function buildGoogleUrl(pathname: string): string {
+    const base = getGoogleBaseUrl();
+    const cleanedPath = pathname.replace(/^\/+/g, "");
+    if (base.endsWith("/v1beta")) return `${base}/${cleanedPath}`;
+    return `${base}/v1beta/${cleanedPath}`;
+  }
+
+  async function postGoogleJson<T>(pathname: string, body: unknown): Promise<T> {
+    const res = await fetch(buildGoogleUrl(pathname), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Google API error (${res.status}): ${err}`);
+    }
+
+    return (await res.json()) as T;
+  }
+
+  function extractInlineImageData(response: {
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
+  }): string | null {
+    for (const candidate of response.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        const data = part.inlineData?.data;
+        if (typeof data === "string" && data.length > 0) return data;
+      }
+    }
+    return null;
+  }
+
+  const model = process.env.GOOGLE_IMAGE_MODEL || "gemini-3-pro-image-preview";
+  const imageSize: "1K" | "2K" = "1K";
+
+  let fullPrompt = prompt;
+  if (aspectRatio) {
+    fullPrompt += ` Aspect ratio: ${aspectRatio}.`;
+  }
+
+  console.log(`  Calling Google Gemini (${model}, ${imageSize})...`);
+
+  const response = await postGoogleJson<{
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
+  }>(`models/${model}:generateContent`, {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: fullPrompt }],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ["IMAGE"],
+      imageConfig: { imageSize },
+    },
+  });
+
+  console.log("  Response received");
+
+  const imageData = extractInlineImageData(response);
+  if (imageData) {
+    const imageBuffer = Buffer.from(imageData, "base64");
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await Bun.write(outputPath, imageBuffer);
+    console.log("  Saved:", outputPath);
+  } else {
+    console.error("  Full response:", JSON.stringify(response, null, 2));
+    throw new Error("No image data in Google API response");
+  }
 }
 
 /**

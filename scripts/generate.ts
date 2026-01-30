@@ -28,8 +28,12 @@ export async function generateComic(options: GenerateOptionsInternal): Promise<v
   console.log("🎨 Flexicomic Generation\n");
 
   // Load configuration
-  const config = await loadConfig(options.configPath);
-  const outputDir = options.outputDir || path.dirname(options.configPath);
+  const configPath = options.configPath || (options as any).config;
+  if (!configPath) {
+    throw new Error("configPath is required");
+  }
+  const config = await loadConfig(configPath);
+  const outputDir = options.outputDir || path.dirname(configPath);
 
   console.log(`Project: ${config.meta.title}`);
   console.log(`Style: ${config.style.artStyle} / ${config.style.tone}`);
