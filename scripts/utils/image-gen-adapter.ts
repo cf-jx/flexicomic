@@ -1,10 +1,49 @@
 /**
- * Image generation adapter for baoyu-image-gen integration
+ * Image generation adapter - direct API calls
  */
 
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
+import { readFile, mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import type { Provider } from "../types.js";
+
+// Load environment variables from .env files
+let envLoaded = false;
+async function loadEnv(): Promise<void> {
+  if (envLoaded) return;
+  envLoaded = true;
+
+  const home = homedir();
+  const cwd = process.cwd();
+
+  const envFiles = [
+    path.join(home, ".flexicomic", ".env"),
+    path.join(cwd, ".flexicomic", ".env"),
+    path.join(cwd, ".env"),
+  ];
+
+  for (const envFile of envFiles) {
+    try {
+      const content = await readFile(envFile, "utf8");
+      for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const idx = trimmed.indexOf("=");
+        if (idx === -1) continue;
+        const key = trimmed.slice(0, idx).trim();
+        let val = trimmed.slice(idx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    } catch {
+      // File doesn't exist, skip
+    }
+  }
+}
 
 export interface ImageGenOptions {
   prompt: string;
@@ -15,50 +54,203 @@ export interface ImageGenOptions {
   refImages?: string[];
 }
 
-const SKILL_DIR = path.resolve(import.meta.dir, "../..");
-
-export async function callImageGen(options: ImageGenOptions): Promise<void> {
-  const args: string[] = [
-    "--prompt", options.prompt,
-    "--image", options.output,
-  ];
-
-  if (options.ar) {
-    args.push("--ar", options.ar);
+/**
+ * Generate image using DashScope (Alibaba Wanx)
+ */
+async function generateWithDashScope(
+  prompt: string,
+  outputPath: string,
+  aspectRatio: string
+): Promise<void> {
+  const apiKey = process.env.DASHSCOPE_API_KEY;
+  if (!apiKey) {
+    throw new Error("DASHSCOPE_API_KEY not found");
   }
 
-  if (options.quality) {
-    args.push("--quality", options.quality);
-  }
-
-  if (options.provider) {
-    args.push("--provider", options.provider);
-  }
-
-  // Add reference images for character consistency
-  if (options.refImages && options.refImages.length > 0) {
-    args.push("--ref", ...options.refImages);
-  }
-
-  const imageGenPath = path.join(
-    SKILL_DIR,
-    "../baoyu-image-gen/scripts/main.ts"
+  // DashScope Wanx image generation API
+  const response = await fetch(
+    "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+    {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "wanx-v1",
+        input: {
+          prompt: prompt,
+        },
+        parameters: {
+          size: parseSize(aspectRatio),
+          n: 1,
+        },
+      }),
+    }
   );
 
-  // Ensure output directory exists
-  const outputDir = path.dirname(options.output);
-  await mkdir(outputDir, { recursive: true });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error("DashScope API error: " + error);
+  }
 
-  // Execute baoyu-image-gen
-  const proc = Bun.spawn(["npx", "-y", "bun", imageGenPath, ...args], {
-    stdout: "inherit",
-    stderr: "inherit",
-    env: process.env,
+  const data = await response.json();
+  console.log("  DashScope response:", JSON.stringify(data).slice(0, 200));
+
+  // Extract image URL from response and download
+  if (data.output?.results?.[0]?.url) {
+    const imageUrl = data.output.results[0].url;
+    console.log("  Downloading from: " + imageUrl);
+    const imageResponse = await fetch(imageUrl);
+    const imageBuffer = await imageResponse.arrayBuffer();
+
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await Bun.write(outputPath, imageBuffer);
+    console.log("  Saved: " + outputPath);
+  } else if (data.output?.task_id) {
+    // Async task - need to poll for result
+    const taskId = data.output.task_id;
+    console.log("  Task ID: " + taskId + ", polling for result...");
+
+    let attempts = 0;
+    const maxAttempts = 30;
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const resultResponse = await fetch(
+        "https://dashscope.aliyuncs.com/api/v1/tasks/" + taskId,
+        {
+          method: "GET",
+          headers: {
+            "Authorization": "Bearer " + apiKey,
+          },
+        }
+      );
+
+      if (!resultResponse.ok) {
+        throw new Error("Failed to get task result");
+      }
+
+      const resultData = await resultResponse.json();
+      console.log("  Poll attempt " + (attempts + 1) + ":", resultData.task_status);
+
+      if (resultData.task_status === "SUCCEEDED" && resultData.results?.[0]?.url) {
+        const imageUrl = resultData.results[0].url;
+        const imageResponse = await fetch(imageUrl);
+        const imageBuffer = await imageResponse.arrayBuffer();
+
+        await mkdir(path.dirname(outputPath), { recursive: true });
+        await Bun.write(outputPath, imageBuffer);
+        console.log("  Saved: " + outputPath);
+        return;
+      } else if (resultData.task_status === "FAILED") {
+        throw new Error("Task failed: " + (resultData.error || "Unknown error"));
+      }
+
+      attempts++;
+    }
+
+    throw new Error("Task timed out");
+  } else {
+    console.log("  Full response:", JSON.stringify(data, null, 2));
+    throw new Error("No image URL in response");
+  }
+}
+
+/**
+ * Generate image using Google Gemini
+ */
+async function generateWithGoogle(
+  prompt: string,
+  outputPath: string,
+  aspectRatio: string,
+  refImages?: string[]
+): Promise<void> {
+  const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GOOGLE_API_KEY not found");
+  }
+
+  // Gemini doesn't have direct image generation, use generative-ai API
+  // For now, we'll use a placeholder implementation
+  throw new Error("Google image generation not yet implemented. Please use DASHSCOPE_API_KEY.");
+}
+
+/**
+ * Generate image using OpenAI
+ */
+async function generateWithOpenAI(
+  prompt: string,
+  outputPath: string,
+  aspectRatio: string
+): Promise<void> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY not found");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "dall-e-3",
+      prompt: prompt,
+      n: 1,
+      size: parseSize(aspectRatio),
+    }),
   });
 
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    throw new Error(`Image generation failed with exit code ${exitCode}`);
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error("OpenAI API error: " + error);
+  }
+
+  const data = await response.json();
+
+  if (data.data?.[0]?.url) {
+    const imageUrl = data.data[0].url;
+    const imageResponse = await fetch(imageUrl);
+    const imageBuffer = await imageResponse.arrayBuffer();
+
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await Bun.write(outputPath, imageBuffer);
+  } else {
+    throw new Error("No image URL in response");
+  }
+}
+
+function parseSize(ar: string): string {
+  const sizes: Record<string, string> = {
+    "1:1": "1024x1024",
+    "3:4": "1024x1365",
+    "4:3": "1365x1024",
+    "16:9": "1792x1024",
+  };
+  return sizes[ar] || "1024x1024";
+}
+
+export async function callImageGen(options: ImageGenOptions): Promise<void> {
+  await loadEnv();
+  const provider = options.provider || resolveProvider(null);
+  const ar = options.ar || "3:4";
+
+  await mkdir(path.dirname(options.output), { recursive: true });
+
+  switch (provider) {
+    case "dashscope":
+      await generateWithDashScope(options.prompt, options.output, ar);
+      break;
+    case "google":
+      await generateWithGoogle(options.prompt, options.output, ar, options.refImages);
+      break;
+    case "openai":
+      await generateWithOpenAI(options.prompt, options.output, ar);
+      break;
+    default:
+      throw new Error("Unknown provider: " + provider);
   }
 }
 
@@ -75,7 +267,7 @@ export async function callImageGenWithRetry(
     } catch (error) {
       lastError = error as Error;
       if (attempt < maxRetries) {
-        console.warn(`  Generation attempt ${attempt + 1} failed, retrying...`);
+        console.warn("  Generation attempt " + (attempt + 1) + " failed, retrying...");
       }
     }
   }
@@ -86,14 +278,13 @@ export async function callImageGenWithRetry(
 export function resolveProvider(preferred: Provider | null | undefined): Provider {
   if (preferred) return preferred;
 
-  // Auto-detect from environment
   const hasGoogle = !!(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
   const hasOpenai = !!process.env.OPENAI_API_KEY;
   const hasDashscope = !!process.env.DASHSCOPE_API_KEY;
 
+  if (hasDashscope) return "dashscope";
   if (hasGoogle) return "google";
   if (hasOpenai) return "openai";
-  if (hasDashscope) return "dashscope";
 
   throw new Error(
     "No API key found. Set GOOGLE_API_KEY, OPENAI_API_KEY, or DASHSCOPE_API_KEY."
@@ -112,5 +303,5 @@ export function calculatePanelAspectRatio(
   const w = Math.round(panelWidth / divisor);
   const h = Math.round(panelHeight / divisor);
 
-  return `${w}:${h}`;
+  return w + ":" + h;
 }
