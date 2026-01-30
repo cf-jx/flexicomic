@@ -1,0 +1,93 @@
+# Dependencies
+node_modules/
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment variables (IMPORTANT: Never commit API keys!)
+.env
+.env.local
+.env.*.local
+.flexicomic/.env
+
+# Generated output
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Project directories (user comics)
+flexicomic/
+comic/
+comics/
+my-comic/
+test-comic/
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-*
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Optional npm cache
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity
+.yarn-integrity
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional stylelint cache
+.stylelintcache
